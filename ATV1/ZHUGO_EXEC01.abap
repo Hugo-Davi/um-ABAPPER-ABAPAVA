@@ -1,0 +1,188 @@
+REPORT ZHUGO_EXEC01.
+
+DATA: EBELN TYPE EKKO-EBELN,
+      EBELP TYPE EKPO-EBELP,
+      BUKRS TYPE EKKO-BUKRS.
+
+DATA: DATENOW  LIKE ZHUGOT_EXEC01-DATENOW,
+      TIME     LIKE ZHUGOT_EXEC01-TIME,
+      USERNOME LIKE ZHUGOT_EXEC01-USERNOME.
+
+      DATENOW  = SY-DATUM.
+      TIME     = SY-UZEIT.
+      USERNOME = SY-UNAME.
+
+DATA: IT_FINAL TYPE TABLE OF ZHUGOT_EXEC01.
+* ALV
+DATA: wa_layout   TYPE slis_layout_alv,
+      wa_fieldcat TYPE slis_fieldcat_alv,
+      it_fieldcat TYPE slis_t_fieldcat_alv.
+
+SELECTION-SCREEN BEGIN OF BLOCK B1 WITH FRAME.
+  SELECT-OPTIONS: S_EBELN FOR EBELN,
+                  S_EBELP FOR EBELP,
+                  S_BUKRS FOR BUKRS.
+SELECTION-SCREEN END OF BLOCK B1.
+
+* SELECT
+SELECT EKKO~EBELN, EKKO~BUKRS, EKPO~EBELP, EKKO~BSART, EKKO~LIFNR, EKKO~AEDAT, EKPO~MATNR, MAKT~MAKTX,
+       @DATENOW AS DATENOW, @TIME AS TIME, @USERNOME AS USERNOME
+  FROM EKKO
+  INNER JOIN EKPO ON EKPO~EBELN EQ EKKO~EBELN
+  INNER JOIN MAKT ON MAKT~MATNR EQ EKPO~MATNR
+  WHERE EKKO~EBELN IN @S_EBELN AND
+        EKPO~EBELP IN @S_EBELP AND
+        EKPO~BUKRS IN @S_BUKRS
+  INTO TABLE @IT_FINAL.
+
+IF SY-SUBRC IS INITIAL.
+* EXIBINDO ALV
+  PERFORM F_FIELDS.
+  PERFORM F_ALV.
+ELSE.
+  WRITE: 'ERRO'.
+ENDIF.
+
+FORM F_ALV.
+  WA_LAYOUT-ZEBRA = 'X'.
+  WA_LAYOUT-COLWIDTH_OPTIMIZE = 'X'.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      I_CALLBACK_PROGRAM                = SY-REPID
+      I_CALLBACK_PF_STATUS_SET          = 'F_SET_PF_STATUS'
+      I_CALLBACK_USER_COMMAND           = 'F_USER_COMMAND'
+      IS_LAYOUT                         = WA_LAYOUT
+      IT_FIELDCAT                       = IT_FIELDCAT
+    TABLES
+      t_outtab                          = IT_FINAL
+    EXCEPTIONS
+      PROGRAM_ERROR                     = 1
+      OTHERS                            = 2
+           .
+  IF sy-subrc <> 0.
+* Implement suitable error handling here
+  ENDIF.
+ENDFORM.
+FORM F_SET_PF_STATUS USING RT_EXTAB TYPE SLIS_T_EXTAB.
+  SET PF-STATUS 'HUGOEXEC01'.
+ENDFORM.
+FORM F_USER_COMMAND USING L_UCOMM    LIKE SY-UCOMM
+                          L_SELFIELD TYPE SLIS_SELFIELD.
+  CASE L_UCOMM.
+    WHEN 'SAVE'.
+      PERFORM F_SAVE_IN_TABLE.
+  ENDCASE.
+ENDFORM.
+*-------------------------------------------*
+*&-----------------------------------------&*
+*&------- PROCESSO DE SALVAR OS -----------&*
+*&------------- DADOS NO BANCO ------------&*
+*&-----------------------------------------&*
+*-------------------------------------------*
+FORM F_SAVE_IN_TABLE.
+  SELECT *
+    FROM ZHUGOT_EXEC01 AS H
+    INTO @DATA(IT_DUPLICATE)
+    WHERE H~EBELN IN @S_EBELN AND
+          H~EBELP IN @S_EBELP AND
+          H~BUKRS IN @S_BUKRS.
+    ENDSELECT.
+    IF SY-SUBRC IS INITIAL.
+      DATA l_ans.
+      CALL FUNCTION 'POPUP_TO_CONFIRM'
+        EXPORTING
+          TITLEBAR                    = 'Confirmação'
+          text_question               = 'Dados já existem na tabela, você quer os sobreescrever?'
+          TEXT_BUTTON_1               = 'Sim'(001)
+          ICON_BUTTON_1               = 'ICON_CHECKED'
+          TEXT_BUTTON_2               = 'Não'(002)
+          ICON_BUTTON_2               = 'ICON_CANCEL'
+          DISPLAY_CANCEL_BUTTON       = ' '
+        IMPORTING
+          ANSWER                      = l_ans
+       EXCEPTIONS
+         TEXT_NOT_FOUND              = 1
+         OTHERS                      = 2
+                .
+      IF sy-subrc <> 0.
+* Implement suitable error handling here
+      ENDIF.
+      IF l_ans EQ 001.
+        PERFORM F_ATT_DATES.
+        MODIFY ZHUGOT_EXEC01 FROM TABLE IT_FINAL.
+        MESSAGE: 'DADOS SOBRESCRITOS COM SUCESSO!' TYPE 'S'.
+      ELSE.
+        MESSAGE: 'OPERAÇÃO CANCELADA COM SUCESSO!' TYPE 'E'.
+      ENDIF.
+    ELSE.
+      PERFORM F_ATT_DATES.
+      MODIFY ZHUGOT_EXEC01 FROM TABLE IT_FINAL.
+      IF SY-SUBRC IS INITIAL.
+        MESSAGE: 'DADOS SALVOS COM SUCESSO!' TYPE 'S'.
+      ENDIF.
+    ENDIF.
+ENDFORM.
+FORM F_ATT_DATES.
+*-------------------------------------------*
+*&-----------------------------------------&*
+*&------- ATUALIZANDO A DATA E HORA -------&*
+*&-------PARA A DO REGISTRO NO BANCO-------&*
+*&-----------------------------------------&*
+*-------------------------------------------*
+  FIELD-SYMBOLS <FS> LIKE LINE OF IT_FINAL.
+  LOOP AT IT_FINAL ASSIGNING <FS>.
+    <FS>-DATENOW = SY-DATUM.
+    <FS>-TIME = SY-UZEIT.
+  ENDLOOP.
+ENDFORM.
+FORM F_FIELDS.
+  WA_FIELDCAT-FIELDNAME = 'EBELN'.
+  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
+  WA_FIELDCAT-SELTEXT_M = 'PEDIDO'.
+  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  CLEAR WA_FIELDCAT.
+
+  WA_FIELDCAT-FIELDNAME = 'EBELP'.
+  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
+  WA_FIELDCAT-SELTEXT_M = 'ITEM'.
+  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  CLEAR WA_FIELDCAT.
+
+  WA_FIELDCAT-FIELDNAME = 'BUKRS'.
+  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
+  WA_FIELDCAT-SELTEXT_M = 'EMPRESA'.
+  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  CLEAR WA_FIELDCAT.
+
+  WA_FIELDCAT-FIELDNAME = 'BSART'.
+  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
+  WA_FIELDCAT-SELTEXT_M = 'TIPO DOCUMENTO'.
+  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  CLEAR WA_FIELDCAT.
+
+  WA_FIELDCAT-FIELDNAME = 'LIFNR'.
+  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
+  WA_FIELDCAT-SELTEXT_M = 'FORNECEDOR'.
+  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  CLEAR WA_FIELDCAT.
+
+  WA_FIELDCAT-FIELDNAME = 'AEDAT'.
+  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
+  WA_FIELDCAT-SELTEXT_M = 'DATA CRIAÇÃO'.
+  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  CLEAR WA_FIELDCAT.
+
+  WA_FIELDCAT-FIELDNAME = 'MATNR'.
+  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
+  WA_FIELDCAT-SELTEXT_M = 'MATERIAL'.
+  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  CLEAR WA_FIELDCAT.
+
+  WA_FIELDCAT-FIELDNAME = 'MAKTX'.
+  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
+  WA_FIELDCAT-SELTEXT_M = 'DESCRIÇÃO'.
+  APPEND WA_FIELDCAT TO IT_FIELDCAT.
+  CLEAR WA_FIELDCAT.
+
+ENDFORM.
