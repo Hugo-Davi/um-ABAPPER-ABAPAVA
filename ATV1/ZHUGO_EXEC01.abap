@@ -1,86 +1,97 @@
-REPORT ZHUGO_EXEC01.
+REPORT zhugo_exec01.
 
-DATA: EBELN TYPE EKKO-EBELN,
-      EBELP TYPE EKPO-EBELP,
-      BUKRS TYPE EKKO-BUKRS.
+DATA: ebeln TYPE ekko-ebeln,
+      ebelp TYPE ekpo-ebelp,
+      bukrs TYPE ekko-bukrs.
 
-DATA: DATENOW  LIKE ZHUGOT_EXEC01-DATENOW,
-      TIME     LIKE ZHUGOT_EXEC01-TIME,
-      USERNOME LIKE ZHUGOT_EXEC01-USERNOME,
-      MANDT    LIKE SYST-MANDT.
+DATA: datenow  LIKE zhugot_exec01-datenow,
+      time     LIKE zhugot_exec01-time,
+      usernome LIKE zhugot_exec01-usernome.
 
-      DATENOW  = SY-DATUM.
-      TIME     = SY-UZEIT.
-      USERNOME = SY-UNAME.
+datenow  = sy-datum.
+time     = sy-uzeit.
+usernome = sy-uname.
 
-DATA: IT_FINAL TYPE TABLE OF ZHUGOT_EXEC01.
+DATA: it_final TYPE TABLE OF zhugot_exec01.
+
 * ALV
 DATA: wa_layout   TYPE slis_layout_alv,
       wa_fieldcat TYPE slis_fieldcat_alv,
       it_fieldcat TYPE slis_t_fieldcat_alv.
 
-SELECTION-SCREEN BEGIN OF BLOCK B1 WITH FRAME.
-  SELECT-OPTIONS: S_EBELN FOR EBELN,
-                  S_EBELP FOR EBELP,
-                  S_BUKRS FOR BUKRS.
-SELECTION-SCREEN END OF BLOCK B1.
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME.
+SELECT-OPTIONS: s_ebeln FOR ebeln,
+                s_ebelp FOR ebelp,
+                s_bukrs FOR bukrs.
+SELECTION-SCREEN END OF BLOCK b1.
 
+START-OF-SELECTION.
 * SELECT
-SELECT EKKO~EBELN, EKKO~BUKRS, EKPO~EBELP, EKKO~BSART, EKKO~LIFNR, EKKO~AEDAT, EKPO~MATNR,
-       CASE WHEN HGO~MAKTX LIKE '%' THEN HGO~MAKTX ELSE MAKT~MAKTX END AS MAKTX," CHECANDO SE EXISTE OU NÃO DESCRIÇÃO PERSONALIZADA
-       @DATENOW AS DATENOW, @TIME AS TIME, @USERNOME AS USERNOME
-  FROM EKKO
-  INNER JOIN EKPO ON EKPO~EBELN EQ EKKO~EBELN
-  INNER JOIN MAKT ON MAKT~MATNR EQ EKPO~MATNR
-  LEFT JOIN ZHUGOT_EXEC01 AS HGO ON HGO~EBELN EQ EKKO~EBELN
-  WHERE EKKO~EBELN IN @S_EBELN AND
-        EKPO~EBELP IN @S_EBELP AND
-        EKPO~BUKRS IN @S_BUKRS
-  INTO CORRESPONDING FIELDS OF TABLE @IT_FINAL.
+SELECT  ekko~ebeln, ekko~bukrs, ekpo~ebelp, ekko~bsart, ekko~lifnr, ekko~aedat, ekpo~matnr, ekko~bstyp,
+        CASE WHEN hgo~maktx LIKE '%' THEN hgo~maktx ELSE makt~maktx END AS maktx," CHECANDO SE EXISTE OU NÃO DESCRIÇÃO PERSONALIZADA
+        @datenow AS datenow, @time AS time, @usernome AS usernome
+        FROM ekko
+  INNER JOIN ekpo ON ekpo~ebeln EQ ekko~ebeln
+  INNER JOIN makt ON makt~matnr EQ ekpo~matnr
+   LEFT JOIN zhugot_exec01 AS hgo ON hgo~ebeln EQ ekko~ebeln AND ekko~bstyp EQ hgo~bstyp
+       WHERE ekko~ebeln IN @s_ebeln AND
+             ekpo~ebelp IN @s_ebelp AND
+             ekpo~bukrs IN @s_bukrs
+        INTO CORRESPONDING FIELDS OF TABLE @it_final.
 
-IF SY-SUBRC IS INITIAL.
-* EXIBINDO ALV
-  PERFORM F_FIELDS.
-  PERFORM F_ALV.
+
+IF sy-subrc IS INITIAL.
+
+*     EXIBINDO ALV
+      PERFORM f_fields.
+      PERFORM f_alv.
+
 ELSE.
-  MESSAGE: 'Ops, não foi possível encontrar nada :(' TYPE 'I'.
+  MESSAGE: 'Ops, não foi possível encontrar nada :(' TYPE 'S' DISPLAY LIKE 'E'.
 ENDIF.
 
-FORM F_ALV.
-  WA_LAYOUT-ZEBRA = 'X'.
-  WA_LAYOUT-COLWIDTH_OPTIMIZE = 'X'.
+FORM f_alv.
+  wa_layout-zebra = 'X'.
+  wa_layout-colwidth_optimize = 'X'.
 
   CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
     EXPORTING
-      I_CALLBACK_PROGRAM                = SY-REPID
-      I_CALLBACK_PF_STATUS_SET          = 'F_SET_PF_STATUS'
-      I_CALLBACK_USER_COMMAND           = 'F_USER_COMMAND'
-      IS_LAYOUT                         = WA_LAYOUT
-      IT_FIELDCAT                       = IT_FIELDCAT
+      i_callback_program       = sy-repid
+      i_callback_pf_status_set = 'F_SET_PF_STATUS'
+      i_callback_user_command  = 'F_USER_COMMAND'
+      is_layout                = wa_layout
+      it_fieldcat              = it_fieldcat
     TABLES
-      t_outtab                          = IT_FINAL
+      t_outtab                 = it_final
     EXCEPTIONS
-      PROGRAM_ERROR                     = 1
-      OTHERS                            = 2
-           .
+      program_error            = 1
+      OTHERS                   = 2.
   IF sy-subrc <> 0.
 * Implement suitable error handling here
   ENDIF.
 ENDFORM.
-FORM F_SET_PF_STATUS USING RT_EXTAB TYPE SLIS_T_EXTAB.
+FORM f_set_pf_status USING rt_extab TYPE slis_t_extab.
   SET PF-STATUS 'HUGOEXEC01'.
 ENDFORM.
-FORM F_USER_COMMAND USING L_UCOMM    LIKE SY-UCOMM
-                          L_SELFIELD TYPE SLIS_SELFIELD.
-  CASE L_UCOMM.
+FORM f_user_command USING l_ucomm    LIKE sy-ucomm
+                          l_selfield TYPE slis_selfield.
+  CASE l_ucomm.
     WHEN 'SAVE'.
-      PERFORM F_SAVE_IN_TABLE.
+      "READ TABLE it_final INTO DATA(lwa_final2) INDEX l_selfield-tabindex.
+      PERFORM f_save_in_table.
     WHEN '&IC1'.
-      IF L_SELFIELD-FIELDNAME EQ 'EBELN'. " Validando o duplo clique
-        READ TABLE IT_FINAL INTO DATA(LWA_FINAL) INDEX L_SELFIELD-TABINDEX.
-        IF SY-SUBRC IS INITIAL.
-          SET PARAMETER ID 'BES' FIELD LWA_FINAL-EBELN.
-          CALL TRANSACTION 'ME23N'.
+      IF l_selfield-fieldname EQ 'EBELN'. " Validando o duplo clique
+        READ TABLE it_final INTO DATA(lwa_final) INDEX l_selfield-tabindex.
+        IF sy-subrc IS INITIAL.
+*         Checando BSTYP para verificar se é possíbel achá-lo na ME23N
+          CASE lwa_final-bstyp.
+            WHEN 'K'.
+              MESSAGE: 'Essa Ordem de Venda é do tipo "Contrato", não podemos abrir :(' TYPE 'S' DISPLAY LIKE 'W'.
+            WHEN OTHERS.
+              SET PARAMETER ID 'BES' FIELD lwa_final-ebeln.
+              CALL TRANSACTION 'ME23N'.
+            ENDCASE.
+
         ENDIF.
       ENDIF.
   ENDCASE.
@@ -91,111 +102,111 @@ ENDFORM.
 *&------------- DADOS NO BANCO ------------&*
 *&-----------------------------------------&*
 *-------------------------------------------*
-FORM F_SAVE_IN_TABLE.
+FORM f_save_in_table.
   SELECT *
-    FROM ZHUGOT_EXEC01 AS H
-    INTO @DATA(IT_DUPLICATE)
-    WHERE H~EBELN IN @S_EBELN AND
-          H~EBELP IN @S_EBELP AND
-          H~BUKRS IN @S_BUKRS.
-    ENDSELECT.
-    IF SY-SUBRC IS INITIAL.
-      DATA l_ans.
-      CALL FUNCTION 'POPUP_TO_CONFIRM'
-        EXPORTING
-          TITLEBAR                    = 'Confirmação'
-          text_question               = 'Dados já existem na tabela, você quer os sobreescrever?'
-          TEXT_BUTTON_1               = 'Sim'(001)
-          ICON_BUTTON_1               = 'ICON_CHECKED'
-          TEXT_BUTTON_2               = 'Não'(002)
-          ICON_BUTTON_2               = 'ICON_CANCEL'
-          DISPLAY_CANCEL_BUTTON       = ' '
-        IMPORTING
-          ANSWER                      = l_ans
-       EXCEPTIONS
-         TEXT_NOT_FOUND              = 1
-         OTHERS                      = 2
-                .
-      IF sy-subrc <> 0.
+    FROM zhugot_exec01 AS h
+    INTO @DATA(it_duplicate)
+    WHERE h~ebeln IN @s_ebeln AND
+          h~ebelp IN @s_ebelp AND
+          h~bukrs IN @s_bukrs.
+  ENDSELECT.
+  IF sy-subrc IS INITIAL.
+    DATA l_ans.
+    CALL FUNCTION 'POPUP_TO_CONFIRM'
+      EXPORTING
+        titlebar              = 'Confirmação'
+        text_question         = 'Dados já existem na tabela, você quer os sobreescrever?'
+        text_button_1         = 'Sim'(001)
+        icon_button_1         = 'ICON_CHECKED'
+        text_button_2         = 'Não'(002)
+        icon_button_2         = 'ICON_CANCEL'
+        display_cancel_button = ' '
+      IMPORTING
+        answer                = l_ans
+      EXCEPTIONS
+        text_not_found        = 1
+        OTHERS                = 2.
+    IF sy-subrc <> 0.
 * Implement suitable error handling here
-      ENDIF.
-      IF l_ans EQ 001.
-        PERFORM F_ATT_DATES.
-        MODIFY ZHUGOT_EXEC01 FROM TABLE IT_FINAL.
-        MESSAGE: 'DADOS SOBRESCRITOS COM SUCESSO!' TYPE 'S'.
-      ELSE.
-        MESSAGE: 'OPERAÇÃO CANCELADA COM SUCESSO!' TYPE 'E'.
-      ENDIF.
-    ELSE.
-      PERFORM F_ATT_DATES.
-      MODIFY ZHUGOT_EXEC01 FROM TABLE IT_FINAL.
-      IF SY-SUBRC IS INITIAL.
-        MESSAGE: 'DADOS SALVOS COM SUCESSO!' TYPE 'S'.
-      ENDIF.
     ENDIF.
+    IF l_ans EQ 001.
+      PERFORM f_att_dates.
+      MODIFY zhugot_exec01 FROM TABLE it_final.
+      MESSAGE: 'DADOS SOBRESCRITOS COM SUCESSO!' TYPE 'S'.
+    ELSE.
+      MESSAGE: 'OPERAÇÃO CANCELADA COM SUCESSO!' TYPE 'E'.
+    ENDIF.
+  ELSE.
+    PERFORM f_att_dates.
+    MODIFY zhugot_exec01 FROM TABLE it_final.
+    IF sy-subrc IS INITIAL.
+      MESSAGE: 'DADOS SALVOS COM SUCESSO!' TYPE 'S'.
+    ENDIF.
+  ENDIF.
 ENDFORM.
-FORM F_ATT_DATES.
-*-------------------------------------------*
+FORM f_att_dates.
 *&-----------------------------------------&*
-*&------- ATUALIZANDO A DATA E HORA -------&*
-*&-------PARA A DO REGISTRO NO BANCO-------&*
+*&&---------------------------------------&&*
+*&&&----- ATUALIZANDO A DATA E HORA -----&&&*
+*&&&-----PARA A DO REGISTRO NO BANCO-----&&&*
+*&&---------------------------------------&&*
 *&-----------------------------------------&*
-*-------------------------------------------*
-  FIELD-SYMBOLS <FS> LIKE LINE OF IT_FINAL.
-  LOOP AT IT_FINAL ASSIGNING <FS>.
-    <FS>-DATENOW = SY-DATUM.
-    <FS>-TIME = SY-UZEIT.
+  FIELD-SYMBOLS <fs> LIKE LINE OF it_final.
+  LOOP AT it_final ASSIGNING <fs>.
+    <fs>-datenow = sy-datum.
+    <fs>-time = sy-uzeit.
   ENDLOOP.
 ENDFORM.
-FORM F_FIELDS.
-  WA_FIELDCAT-FIELDNAME = 'EBELN'.
-  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
-  WA_FIELDCAT-SELTEXT_M = 'PEDIDO'.
-  WA_FIELDCAT-hotspot   = 'X'.
-  APPEND WA_FIELDCAT TO IT_FIELDCAT.
-  CLEAR WA_FIELDCAT.
+FORM f_fields.
+  wa_fieldcat-fieldname = 'EBELN'.
+  wa_fieldcat-tabname   = 'IT_FINAL'.
+  wa_fieldcat-seltext_m = 'PEDIDO'.
+  wa_fieldcat-hotspot   = 'X'.
+  APPEND wa_fieldcat TO it_fieldcat.
+  CLEAR wa_fieldcat.
 
-  WA_FIELDCAT-FIELDNAME = 'BUKRS'.
-  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
-  WA_FIELDCAT-SELTEXT_M = 'EMPRESA'.
-  APPEND WA_FIELDCAT TO IT_FIELDCAT.
-  CLEAR WA_FIELDCAT.
+  wa_fieldcat-fieldname = 'BUKRS'.
+  wa_fieldcat-tabname   = 'IT_FINAL'.
+  wa_fieldcat-seltext_m = 'EMPRESA'.
+  APPEND wa_fieldcat TO it_fieldcat.
+  CLEAR wa_fieldcat.
 
-  WA_FIELDCAT-FIELDNAME = 'EBELP'.
-  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
-  WA_FIELDCAT-SELTEXT_M = 'ITEM'.
-  APPEND WA_FIELDCAT TO IT_FIELDCAT.
-  CLEAR WA_FIELDCAT.
+  wa_fieldcat-fieldname = 'EBELP'.
+  wa_fieldcat-tabname   = 'IT_FINAL'.
+  wa_fieldcat-seltext_m = 'ITEM'.
+  APPEND wa_fieldcat TO it_fieldcat.
+  CLEAR wa_fieldcat.
 
-  WA_FIELDCAT-FIELDNAME = 'BSART'.
-  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
-  WA_FIELDCAT-SELTEXT_M = 'TIPO DOCUMENTO'.
-  APPEND WA_FIELDCAT TO IT_FIELDCAT.
-  CLEAR WA_FIELDCAT.
+  wa_fieldcat-fieldname = 'BSART'.
+  wa_fieldcat-tabname   = 'IT_FINAL'.
+  wa_fieldcat-seltext_m = 'TIPO DOCUMENTO'.
+  APPEND wa_fieldcat TO it_fieldcat.
+  CLEAR wa_fieldcat.
 
-  WA_FIELDCAT-FIELDNAME = 'LIFNR'.
-  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
-  WA_FIELDCAT-SELTEXT_M = 'FORNECEDOR'.
-  APPEND WA_FIELDCAT TO IT_FIELDCAT.
-  CLEAR WA_FIELDCAT.
+  wa_fieldcat-fieldname = 'LIFNR'.
+  wa_fieldcat-tabname   = 'IT_FINAL'.
+  wa_fieldcat-seltext_m = 'FORNECEDOR'.
+  APPEND wa_fieldcat TO it_fieldcat.
+  CLEAR wa_fieldcat.
 
-  WA_FIELDCAT-FIELDNAME = 'AEDAT'.
-  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
-  WA_FIELDCAT-SELTEXT_M = 'DATA CRIAÇÃO'.
-  APPEND WA_FIELDCAT TO IT_FIELDCAT.
-  CLEAR WA_FIELDCAT.
+  wa_fieldcat-fieldname = 'AEDAT'.
+  wa_fieldcat-tabname   = 'IT_FINAL'.
+  wa_fieldcat-seltext_m = 'DATA CRIAÇÃO'.
+  APPEND wa_fieldcat TO it_fieldcat.
+  CLEAR wa_fieldcat.
 
-  WA_FIELDCAT-FIELDNAME = 'MATNR'.
-  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
-  WA_FIELDCAT-SELTEXT_M = 'MATERIAL'.
-  APPEND WA_FIELDCAT TO IT_FIELDCAT.
-  CLEAR WA_FIELDCAT.
+  wa_fieldcat-fieldname = 'MATNR'.
+  wa_fieldcat-tabname   = 'IT_FINAL'.
+  wa_fieldcat-seltext_m = 'MATERIAL'.
+  APPEND wa_fieldcat TO it_fieldcat.
+  CLEAR wa_fieldcat.
 
-  WA_FIELDCAT-FIELDNAME = 'MAKTX'.
-  WA_FIELDCAT-TABNAME   = 'IT_FINAL'.
-  WA_FIELDCAT-SELTEXT_M = 'DESCRIÇÃO'.
-  WA_FIELDCAT-EDIT = 'X'.
-  APPEND WA_FIELDCAT TO IT_FIELDCAT.
-  CLEAR WA_FIELDCAT.
+  wa_fieldcat-fieldname = 'MAKTX'.
+  wa_fieldcat-tabname   = 'IT_FINAL'.
+  wa_fieldcat-seltext_m = 'DESCRIÇÃO'.
+  wa_fieldcat-edit = 'X'.
+  wa_fieldcat-outputlen = 50.
+  APPEND wa_fieldcat TO it_fieldcat.
+  CLEAR wa_fieldcat.
 
 ENDFORM.
