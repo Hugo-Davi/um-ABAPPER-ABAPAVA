@@ -75,7 +75,22 @@ FORM f_set_pf_status USING rt_extab TYPE slis_t_extab.
 ENDFORM.
 FORM f_user_command USING l_ucomm    LIKE sy-ucomm
                           l_selfield TYPE slis_selfield.
-  CASE l_ucomm.
+
+*** BEGIN OF ATUALIZANDO O ALV GRID ( https://answers.sap.com/questions/4385013/problems-in-alv-refresh-after-data-changes.html )
+  DATA: gd_repid LIKE sy-repid, "Exists
+  ref_grid TYPE REF TO cl_gui_alv_grid.
+  IF ref_grid IS INITIAL.
+    CALL FUNCTION 'GET_GLOBALS_FROM_SLVC_FULLSCR'
+      IMPORTING
+        e_grid = ref_grid.
+  ENDIF.
+  IF NOT ref_grid IS INITIAL.
+    CALL METHOD ref_grid->check_changed_data .
+  ENDIF.
+  l_selfield-refresh = abap_true.  " refresh ALV list !!!
+*** END OF ATUALIZANDO O ALV GRID
+
+  CASE l_ucomm. " Checando Input do Usuário
     WHEN 'SAVE'.
       "READ TABLE it_final INTO DATA(lwa_final2) INDEX l_selfield-tabindex.
       PERFORM f_save_in_table.
